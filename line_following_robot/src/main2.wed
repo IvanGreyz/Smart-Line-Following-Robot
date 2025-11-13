@@ -1,0 +1,112 @@
+#include <Arduino.h>
+#include <HardwareSerial.h>
+#include <Wire.h>
+
+  /* ==================================================================
+   *                        Definition 
+   ==================================================================*/
+
+
+#define UART_TX 16
+#define UART_RX 17
+#define UART_BAUDRATE 115200
+
+#define IR0_PIN 32
+#define IR1_PIN 35
+#define IR2_PIN 34
+#define IR3_PIN 36
+#define IR4_PIN 39
+
+#define MPU_ADDRESS 0x68  // I2C address of MPU6050
+#define MPU_SCL_PIN 21
+#define MPU_SDA_PIN 22
+
+HardwareSerial SerialESP(2);
+char line[80];
+
+static uint8_t ir0 = 3;
+static uint8_t ir1 = 4;
+static uint8_t ir2 = 5;
+static uint8_t ir3 = 6;
+static uint8_t ir4 = 7;
+static float u1 = 57.8;
+static float u2 = 3.14;
+static float u3 = -21.2;
+static int16_t signal_accel_x = 25;
+static int16_t signal_accel_y = 26;
+static int16_t signal_accel_z = 27;
+static int16_t signal_gyro_x = 29;
+static int16_t signal_gyro_y = 14;
+static int16_t signal_gyro_z = 12;
+static int16_t signal_temperature = 0;
+
+// Send telemetry data line
+void sendTelemetry();
+
+void setup() {
+  // Configure line sensor pins
+  SerialESP.begin(UART_BAUDRATE, SERIAL_8N1, UART_RX, UART_TX);
+  pinMode(IR0_PIN,INPUT);
+  pinMode(IR1_PIN,INPUT);
+  pinMode(IR2_PIN,INPUT);
+  pinMode(IR3_PIN,INPUT);
+  pinMode(IR4_PIN,INPUT);
+
+  // Configure I2C for MPU6050
+  Wire.begin();                               // Initialize comunication
+  Wire.beginTransmission(MPU_ADDRESS);        // Start communication with MPU6050 // MPU=0x68
+  Wire.write(0x6B);                           // Talk to the register 6B
+  Wire.write(0x00);                           // Make reset - place a 0 into the 6B register
+  Wire.endTransmission(true);                 //end the transmission
+}
+
+void loop() {
+  // Read line sensor
+  ir0 = analogRead(IR0_PIN)>>4;
+  ir1 = analogRead(IR1_PIN)>>4;
+  ir2 = analogRead(IR2_PIN)>>4;
+  ir3 = analogRead(IR3_PIN)>>4;
+  ir4 = analogRead(IR4_PIN)>>4;
+
+  // Read MPU6050
+  Wire.beginTransmission(MPU_ADDRESS);
+  Wire.write(0x3B); // Start with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDRESS, 6, true);
+  signal_accel_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
+  signal_accel_y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
+  signal_accel_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
+  signal_temperature = Wire.read()<<8 | Wire.read(); // reading registers: 0x41 (TEMP_OUT_H) and 0x42 (TEMP_OUT_L)
+  signal_gyro_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x43 (GYRO_XOUT_H) and 0x44 (GYRO_XOUT_L)
+  signal_gyro_y = Wire.read()<<8 | Wire.read(); // reading registers: 0x45 (GYRO_YOUT_H) and 0x46 (GYRO_YOUT_L)
+  signal_gyro_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x47 (GYRO_ZOUT_H) and 0x48 (GYRO_ZOUT_L)
+
+
+  // Read commands from UART
+  while (SerialESP.available()) {
+  int c = SerialESP.read();
+  if (c == 'G') {
+  sendTelemetry();
+  } else if (c == '\n' || c == '\r') {
+  // ignore terminators
+  } else {
+  // ignore other chars
+  }
+  }
+}
+
+
+// Send telemetry data line
+void sendTelemetry()
+{
+  int n = snprintf(line, sizeof(line),
+                   "%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d\n",
+                   ir0, ir1, ir2, ir3, ir4,
+                   u1, u2, u3,
+                  signal_accel_x,signal_accel_y,signal_accel_z,
+                  signal_gyro_x, signal_gyro_y,signal_gyro_z);  // %ld needs a long cast on some platforms
+
+  if (n > 0) {
+    SerialESP.write((const uint8_t*)line, (size_t)n);
+  }
+}
